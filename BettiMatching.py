@@ -195,6 +195,7 @@ class CubicalPersistence:
         if type(Picture) == torch.Tensor:
             Picture = torch.squeeze(Picture)
         self.m, self.n = Picture.shape
+        self.Picture = Picture
         if relative == False:
                 self.PixelMap = Picture
         else:
@@ -522,8 +523,14 @@ class CubicalPersistence:
         else:
             max_val = max(intervals, key=lambda x:x[0])[0]
             min_val = min(intervals, key=lambda x:x[1] if (x[1]!=-np.infty) else np.infty)[1]
-        x_min = min_val - (max_val-min_val)*0.1
-        x_max = max_val + (max_val-min_val)*0.1
+        # x_min = min_val - (max_val-min_val)*0.1
+        # x_max = max_val + (max_val-min_val)*0.1
+        min_val_pic = self.Picture.min()
+        max_val_pic = self.Picture.max()
+        x_min = min_val_pic - (max_val_pic-min_val_pic)*0.1
+        x_max = max_val_pic + (max_val_pic-min_val_pic)*0.1
+
+        plot_pairs = []
         for dim in range(2):
             num_intervals = len(self.intervals[dim])
             height = dim + 1/(num_intervals+1)
@@ -531,17 +538,23 @@ class CubicalPersistence:
                 if j == np.infty:
                     if self.filtration == 'sublevel':
                         plt.plot((self.index_to_value(i),x_max), (height,height), color=color)
+                        plot_pairs.append(((self.index_to_value(i), height), (x_max, height)))
                     else:
                         plt.plot((self.index_to_value(i),x_min), (height,height), color=color)
+                        plot_pairs.append(((self.index_to_value(i), height), (x_min, height)))
                 else:
                     plt.plot(self.fine_to_coarse((i,j)), (height,height), color=color)
+                    plot_pairs.append(tuple(zip(self.fine_to_coarse((i,j)), (height, height))))
                 height += 1/(num_intervals+1)
         plt.plot((x_min,x_max),(1,1), color='k', linewidth=0.8)
+        plot_pairs.append(((x_min, 1), (x_max, 1)))
         plt.ylabel("Dimension")
-        plt.xlim(x_min,x_max)
+        # if x_max > -np.infty and x_min < np.infty:
+        #     plt.xlim(x_min,x_max)
         plt.ylim(0,2)
         plt.yticks([0.5,1.5],[0,1])
-        return
+        import plotly.express as px
+        return px.line(x=[x for l in plot_pairs for x, _ in (list(l) + [(None, None)])], y=[y for l in plot_pairs for _, y in (list(l) + [(None, None)])])
     
 
     def Diagram(self, color='red', ratio=1):
@@ -1086,8 +1099,8 @@ class InducedMatching:
 
 
     def BarCode(self, plot_image=False, colors=['r','g','grey'], ratio=1):
-        w, h = matplotlib.figure.figaspect(ratio)
-        fig, ax = plt.subplots(figsize=(w,h))
+        w, h = matplotlib.figure.figaspect(1)
+        fig, ax = plt.subplots(figsize=(w*ratio,h*ratio))
         intervals_0 = [self.IP.CP_0.fine_to_coarse(interval) for dim in range(2) for interval in self.IP.CP_0.intervals[dim]]
         intervals_1 = [self.IP.CP_1.fine_to_coarse(interval) for dim in range(2) for interval in self.IP.CP_1.intervals[dim]]
         if self.IP.CP_0.filtration == 'sublevel':
@@ -1705,7 +1718,9 @@ class BettiMatching:
         
         if type(matches) != list:
             num_matches = min(matches,len(self.matched[0]))
-            matches = rd.sample(range(0,len(self.matched[0])), num_matches)
+            # matches = rd.sample(range(0,len(self.matched[0])), num_matches)
+            matches = [i for i, _ in sorted(enumerate(self.matched[0]), key=lambda i_m: -min(i_m[1][0][1]-i_m[1][0][0], i_m[1][2][1]-i_m[1][2][0]))[:num_matches]]
+            # print(matches)
         
         if len(matches) == 1:
             (I_0,I_comp,I_1) = self.matched[0][matches[0]]
@@ -1771,7 +1786,7 @@ class BettiMatching:
     def get_birth_dics_dim_1(self, matches, threshold_0=0.5, threshold_comp=0.5, threshold_1=0.5, app=False):
         if len(self.matched[1]) == 0:
             raise ValueError('No matches in dimension 1.')
-        assert (type(matches) == list and len(matches) <= 6) or (0 <= matches and matches <=6)
+        # assert (type(matches) == list and len(matches) <= 6) or (0 <= matches and matches <=6)
 
         birth_dic_0 = {}
         birth_dic_comp = {}
@@ -1786,7 +1801,9 @@ class BettiMatching:
 
         if type(matches) != list:
             num_matches = min(matches,len(self.matched[1]))
-            matches = rd.sample(range(0,len(self.matched[1])), num_matches)
+            # matches = rd.sample(range(0,len(self.matched[1])), num_matches)
+            matches = [i for i, _ in sorted(enumerate(self.matched[1]), key=lambda i_m: min(i_m[1][0][1]-i_m[1][0][0], i_m[1][2][1]-i_m[1][2][0]))[:num_matches]]
+            print(f"Showing {len(matches)} cycles")
 
         if len(matches) == 1:
             (I_0,I_comp,I_1) = self.matched[1][matches[0]]
@@ -1807,9 +1824,17 @@ class BettiMatching:
                 counter += 1
 
         if app == False:
-            colormap_0 = ListedColormap([(1,0,0,1),(0,1,0,1),(0,0,1,1),(1,1,0,1),(1,0,1,1),(0,1,1,1)])
-            colormap_comp = ListedColormap([(1,0,0,1),(0,1,0,1),(0,0,1,1),(1,1,0,1),(1,0,1,1),(0,1,1,1)])
-            colormap_1 = ListedColormap([(1,0,0,1),(0,1,0,1),(0,0,1,1),(1,1,0,1),(1,0,1,1),(0,1,1,1)])
+            # colormap_0 = ListedColormap([(1,0,0,1),(0,1,0,1),(0,0,1,1),(1,1,0,1),(1,0,1,1),(0,1,1,1),(1,0.5,0,1),(1,0,0.5,1),(0.5,1,0,1),(0.5,0,1,1),(0,0.5,1,1),(0,1,0.5,1),
+            #                             (1,0.5,0.25,1),(1,0.25,0.5,1),(0.5,1,0.25,1),(0.25,1,0.5,1),(0.25,0.5,1,1),(0.5,0.25,1,1)])
+            
+            # Quick and dirty way to generate random different colors
+            colormap_0 = ListedColormap(
+                np.random.rand(len(matches), 3).tolist()
+            )
+
+
+            colormap_comp = colormap_0 # ListedColormap([(1,0,0,1),(0,1,0,1),(0,0,1,1),(1,1,0,1),(1,0,1,1),(0,1,1,1)])
+            colormap_1 = colormap_0 # ListedColormap([(1,0,0,1),(0,1,0,1),(0,0,1,1),(1,1,0,1),(1,0,1,1),(0,1,1,1)])
         else:
             (a_0,b_0) = self.CP_0.fine_to_coarse(I_0)
             (a_comp,b_comp) = self.CP_comp.fine_to_coarse(I_comp)
